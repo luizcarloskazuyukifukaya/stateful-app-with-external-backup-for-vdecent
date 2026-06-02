@@ -7,6 +7,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    labels:
+      - "coolify.managed=true"
 
   db:
     image: postgres:16-alpine
@@ -39,6 +41,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    labels:
+      - "coolify.managed=true"
 
 volumes:
   postgres_data:

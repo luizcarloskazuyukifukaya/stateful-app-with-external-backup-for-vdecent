@@ -168,9 +168,7 @@ This application is optimized for deployment on [Coolify](https://coolify.io/).
 
 ### 1. Docker Compose Configuration
 When creating a new "Docker Compose" resource in Coolify, use the contents of:
-- **`docker-compose.coolify.yaml`** (This file includes specific overrides for the Coolify environment).
-
-Coolify will use `docker-compose.yaml` as the base and apply the labels from `docker-compose.coolify.yaml`.
+- **`docker-compose.yaml`** (This file is now unified and includes the necessary labels for Coolify management).
 
 ### 2. Required Environment Variables
 In the Coolify **Environment Variables** section, define the following:
