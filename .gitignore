@@ -6,3 +6,5 @@ credentials.json
 token.json
 sidecar/venv/
 docker-compose.local.yaml
+__pycache__/
+*.pyc

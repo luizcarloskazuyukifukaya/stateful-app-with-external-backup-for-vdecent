@@ -4,9 +4,19 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgres://user:password@db:5432/activitylog
+    expose:
+      - "80"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+      - vdecent-ingress
     labels:
       - "coolify.managed=true"
 
@@ -24,6 +34,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
 
   sidecar:
     build: ./sidecar
@@ -41,8 +53,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - app-network
     labels:
       - "coolify.managed=true"
+
+networks:
+  app-network:
+    driver: bridge
+  vdecent-ingress:
+    external: true
+    name: vdecent-ingress
 
 volumes:
   postgres_data:
