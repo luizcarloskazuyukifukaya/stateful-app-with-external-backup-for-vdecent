@@ -155,6 +155,12 @@ fi
 
 echo "Step 3: Starting App + Database via Docker..."
 
+# Ensure vdecent-ingress network exists (required by docker-compose.yaml)
+if ! docker network ls | grep -q "vdecent-ingress"; then
+    echo "-> Creating external network 'vdecent-ingress'..."
+    docker network create vdecent-ingress
+fi
+
 # Create local override file with selected port and local volume mounts
 cat <<OVERRIDE > docker-compose.local.yaml
 services:
