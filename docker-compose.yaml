@@ -14,9 +14,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks:
-      - app-network
-      - vdecent-ingress
     labels:
       - "coolify.managed=true"
 
@@ -34,8 +31,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - app-network
 
   sidecar:
     build: ./sidecar
@@ -53,17 +48,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - app-network
-    labels:
-      - "coolify.managed=true"
-
-networks:
-  app-network:
-    driver: bridge
-  vdecent-ingress:
-    external: true
-    name: vdecent-ingress
 
 volumes:
   postgres_data:
