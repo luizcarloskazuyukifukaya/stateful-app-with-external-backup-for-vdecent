@@ -2,6 +2,7 @@
 
 # Default port candidates (priority order)
 PORT_CANDIDATES=(80 8081 8082 8083 8084 8085)
+SIDECAR_PORT_CANDIDATES=(8000 8001 8002 8003 8004 8005)
 
 # Exit on error
 set -e
@@ -18,7 +19,7 @@ is_port_in_use() {
     ss -tuln | grep -q ":$1 "
 }
 
-# Find available port
+# Find available port for app
 for p in "${PORT_CANDIDATES[@]}"; do
     if ! is_port_in_use "$p"; then
         PORT=$p
@@ -26,13 +27,29 @@ for p in "${PORT_CANDIDATES[@]}"; do
     fi
 done
 
-# If no port found
+# If no port found for app
 if [ -z "$PORT" ]; then
-    echo "Error: No available ports (80, 8081, 8082, 8083, 8084, 8085)."
+    echo "Error: No available app ports (80, 8081, 8082, 8083, 8084, 8085)."
     exit 1
 fi
 
-echo "-> Using port: $PORT"
+# Find available port for sidecar
+for p in "${SIDECAR_PORT_CANDIDATES[@]}"; do
+    if ! is_port_in_use "$p"; then
+        SIDECAR_PORT=$p
+        break
+    fi
+done
+
+# If no port found for sidecar
+if [ -z "$SIDECAR_PORT" ]; then
+    echo "Error: No available sidecar ports (8000, 8001, 8002, 8003, 8004, 8005)."
+    exit 1
+fi
+
+echo "-> Using app port: $PORT"
+echo "-> Using sidecar port: $SIDECAR_PORT"
+
 
 # Check for Docker Compose (plugin or standalone)
 if docker compose version >/dev/null 2>&1; then
@@ -169,7 +186,7 @@ services:
       - "$PORT:80"
   sidecar:
     ports:
-      - "8000:8000"
+      - "$SIDECAR_PORT:8000"
     volumes:
       - ./sidecar/credentials.json:/app/credentials.json
       - ./sidecar/token.json:/app/token.json
@@ -187,6 +204,9 @@ else
     NETWORK_URL="http://$LOCAL_IP:$PORT"
 fi
 
+LOCAL_SIDECAR_URL="http://localhost:$SIDECAR_PORT"
+NETWORK_SIDECAR_URL="http://$LOCAL_IP:$SIDECAR_PORT"
+
 echo ""
 echo "Success! The application is starting up."
 echo "Access the web page at:"
@@ -196,6 +216,15 @@ if [ ! -z "$LOCAL_IP" ]; then
     echo "2) Network: $NETWORK_URL"
     echo "   (Use this URL to access from other PCs in your network)"
 fi
+
+echo ""
+echo "Access the Sidecar API at:"
+echo "1) Local:  $LOCAL_SIDECAR_URL"
+
+if [ ! -z "$LOCAL_IP" ]; then
+    echo "2) Network: $NETWORK_SIDECAR_URL"
+fi
+
 
 echo ""
 echo "Useful Commands:"

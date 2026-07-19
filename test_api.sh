@@ -26,6 +26,12 @@ fi
 RESTORE_AUTH_TOKEN="${RESTORE_AUTH_TOKEN:-YOUR_OWN_AUTH_TOKEN_IF_NO_DEFINED_IN_ENV_FILE}"
 # Define port number
 PORT=8000
+if [ -f docker-compose.local.yaml ]; then
+    DETECTED_PORT=$(grep -A 2 "sidecar:" docker-compose.local.yaml | grep -oE '[0-9]+:8000' | cut -d: -f1 || true)
+    if [ ! -z "$DETECTED_PORT" ]; then
+        PORT="$DETECTED_PORT"
+    fi
+fi
 
 # ----------------------------
 # Configuration
