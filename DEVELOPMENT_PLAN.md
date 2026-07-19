@@ -74,7 +74,7 @@ This plan outlines the implementation of a sidecar container for automatic datab
 - [x] Update `perform_restore` in `sidecar/backup.py` to download, extract the tarball, restore filesystem volumes, and run database restoration.
 - [x] Update lookups in `sidecar/backup.py` to fetch `.tar.gz` backups from Google Drive.
 - [x] Update `README.md` to reflect the new Docker volume backup capabilities.
-- [ ] Verify functionality locally.
+- [x] Verify functionality locally.
 
 
 
