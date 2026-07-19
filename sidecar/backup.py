@@ -105,6 +105,7 @@ def perform_backup():
         with tarfile.open(archive_file, "w:gz") as tar:
             # Add database backup at root
             if os.path.exists(db_sql_file):
+                logger.info("Adding database SQL dump to archive: db_backup.sql")
                 tar.add(db_sql_file, arcname="db_backup.sql")
             
             # Add filesystem volumes under volumes/
@@ -113,8 +114,17 @@ def perform_backup():
                 for item in os.listdir(volumes_dir):
                     item_path = os.path.join(volumes_dir, item)
                     if os.path.isdir(item_path) and item != "postgres_data":
-                        logger.info(f"Adding volume to archive: {item}")
-                        tar.add(item_path, arcname=os.path.join("volumes", item))
+                        logger.info(f"Adding volume directory: {item}")
+                        
+                        def log_filter(tarinfo):
+                            if tarinfo.isfile():
+                                logger.info(f"  -> Archiving file: {tarinfo.name} ({tarinfo.size} bytes)")
+                            elif tarinfo.isdir():
+                                logger.info(f"  -> Archiving directory: {tarinfo.name}")
+                            return tarinfo
+                        
+                        tar.add(item_path, arcname=os.path.join("volumes", item), filter=log_filter)
+
 
         # 3. Upload to Google Drive
         service = get_gdrive_service()
