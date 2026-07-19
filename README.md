@@ -73,11 +73,12 @@ These variables must be supplied to the V-Decent Application Manager:
 ## Data Persistence and Backup
 - **Application type:** Pattern C (Stateful with Internal Data)
 - **External storage:** Google Drive
-- **Docker volumes:** `postgres_data`
-- **Backup sidecar:** Python-based service running `pg_dump`.
+- **Docker volumes:** `postgres_data`, `app_uploads`
+- **Backup sidecar:** Python-based service running `pg_dump` (for the database) and archiving all other directories under `/backup/volumes/` into a consolidated `.tar.gz` archive (e.g. `backup_YYYYMMDD_HHMMSS.tar.gz`).
 - **Backup target:** Google Drive folder.
-- **Restore procedure:** Use the Sidecar API `/api/restore` with a valid `file_id` and auth token.
+- **Restore procedure:** Use the Sidecar API `/api/restore` with a valid `file_id` and auth token. It will unpack the archive, restore the filesystem volumes, and run the SQL database restoration.
 - **Known limitations:** Backup interval minimum is 5 minutes. Initial restore on first deployment requires an existing backup in the specified Google Drive folder.
+
 
 ## Troubleshooting
 - **Startup:** Check logs via `docker compose logs -f`. Ensure `DATABASE_URL` matches the internal `db` service name.

@@ -3,6 +3,8 @@ import datetime
 import subprocess
 import logging
 import base64
+import tarfile
+import shutil
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -11,6 +13,7 @@ from googleapiclient.http import MediaFileUpload
 from dotenv import load_dotenv
 
 load_dotenv()
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -67,7 +70,7 @@ def get_gdrive_service():
     return build('drive', 'v3', credentials=creds)
 
 def perform_backup():
-    logger.info("Starting database backup...")
+    logger.info("Starting database and volume backup...")
     try:
         # Get environment variables
         db_url = os.getenv('DATABASE_URL')
@@ -76,44 +79,59 @@ def perform_backup():
         if not db_url:
             raise ValueError("DATABASE_URL is not set")
 
-        # Create backup filename
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = f"backup_{timestamp}.sql"
+        db_sql_file = "db_backup.sql"
+        archive_file = f"backup_{timestamp}.tar.gz"
 
-        # Run pg_dump
-        # Assuming pg_dump is available in the container
-        # Format: postgresql://username:password@host:port/dbname
-        env = os.environ.copy()
-        # We use --clean and --if-exists to make the restore more robust (it will drop tables if they exist)
-        result = subprocess.run(['pg_dump', db_url, '--clean', '--if-exists', '-f', backup_file], capture_output=True, text=True)
+        # 1. Run pg_dump to create a logical database backup
+        logger.info("Dumping database to sql...")
+        result = subprocess.run(['pg_dump', db_url, '--clean', '--if-exists', '-f', db_sql_file], capture_output=True, text=True)
         
         if result.returncode != 0:
             logger.error(f"pg_dump failed: {result.stderr}")
             return False, result.stderr
 
         # Workaround for version mismatch: remove SET transaction_timeout = 0; if present
-        # This parameter was introduced in Postgres 17 and causes errors on older versions.
-        if os.path.exists(backup_file):
-            with open(backup_file, 'r') as f:
+        if os.path.exists(db_sql_file):
+            with open(db_sql_file, 'r') as f:
                 lines = f.readlines()
-            with open(backup_file, 'w') as f:
+            with open(db_sql_file, 'w') as f:
                 for line in lines:
                     if "SET transaction_timeout = 0;" not in line:
                         f.write(line)
 
-        # Upload to Google Drive
+        # 2. Package the SQL dump and non-db volumes into a compressed tarball
+        logger.info("Creating consolidated tarball archive...")
+        with tarfile.open(archive_file, "w:gz") as tar:
+            # Add database backup at root
+            if os.path.exists(db_sql_file):
+                tar.add(db_sql_file, arcname="db_backup.sql")
+            
+            # Add filesystem volumes under volumes/
+            volumes_dir = "/backup/volumes"
+            if os.path.exists(volumes_dir):
+                for item in os.listdir(volumes_dir):
+                    item_path = os.path.join(volumes_dir, item)
+                    if os.path.isdir(item_path) and item != "postgres_data":
+                        logger.info(f"Adding volume to archive: {item}")
+                        tar.add(item_path, arcname=os.path.join("volumes", item))
+
+        # 3. Upload to Google Drive
         service = get_gdrive_service()
-        file_metadata = {'name': backup_file}
+        file_metadata = {'name': archive_file}
         if folder_id:
             file_metadata['parents'] = [folder_id]
         
-        media = MediaFileUpload(backup_file, mimetype='application/sql')
+        media = MediaFileUpload(archive_file, mimetype='application/gzip')
         file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         
-        logger.info(f"Backup uploaded successfully. File ID: {file.get('id')}")
+        logger.info(f"Archive backup uploaded successfully. File ID: {file.get('id')}")
         
-        # Clean up local file
-        os.remove(backup_file)
+        # Clean up local temporary files
+        if os.path.exists(db_sql_file):
+            os.remove(db_sql_file)
+        if os.path.exists(archive_file):
+            os.remove(archive_file)
 
         # Automatically purge if retention is set
         perform_purge()
@@ -122,7 +140,13 @@ def perform_backup():
 
     except Exception as e:
         logger.exception("An error occurred during backup")
+        # Clean up any leftover local files in case of error
+        if os.path.exists("db_backup.sql"):
+            os.remove("db_backup.sql")
+        if 'archive_file' in locals() and os.path.exists(archive_file):
+            os.remove(archive_file)
         return False, str(e)
+
 
 def perform_purge():
     logger.info("Checking for old backups to purge...")
@@ -161,8 +185,8 @@ def list_backups():
         folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
         service = get_gdrive_service()
         
-        # Be inclusive of different MIME types and extensions for manually uploaded files
-        query = "(mimeType = 'application/sql' or mimeType = 'text/plain' or mimeType = 'text/x-sql' or name contains '.sql') and trashed = false"
+        # Be inclusive of both new .tar.gz volume archives and legacy .sql backups
+        query = "(mimeType = 'application/gzip' or mimeType = 'application/x-gzip' or mimeType = 'application/x-tar' or mimeType = 'application/sql' or name contains '.tar.gz' or name contains '.sql') and trashed = false"
         if folder_id:
             query += f" and '{folder_id}' in parents"
         
@@ -175,13 +199,19 @@ def list_backups():
         
         files = results.get('files', [])
         
-        # Further filter in Python to ensure we only get .sql files if they matched by broad MIME types
-        backups = [f for f in files if f['name'].lower().endswith('.sql') or f.get('mimeType') == 'application/sql']
+        # Filter for files that have tar.gz/sql extensions or corresponding mime types
+        backups = [
+            f for f in files 
+            if f['name'].lower().endswith('.tar.gz') 
+            or f['name'].lower().endswith('.sql') 
+            or f.get('mimeType') in ['application/gzip', 'application/x-gzip', 'application/x-tar', 'application/sql']
+        ]
         
         return True, backups
     except Exception as e:
         logger.exception("An error occurred while listing backups")
         return False, str(e)
+
 
 import time
 import psycopg2
@@ -259,7 +289,7 @@ def restore_latest_on_startup():
         logger.info("No backups found in Google Drive to restore.")
 
 def perform_restore(file_id):
-    logger.info(f"Starting database restore from file ID: {file_id}...")
+    logger.info(f"Starting restore from file ID: {file_id}...")
     try:
         db_url = os.getenv('DATABASE_URL')
         if not db_url:
@@ -267,15 +297,108 @@ def perform_restore(file_id):
 
         service = get_gdrive_service()
         
-        # Download from Google Drive
-        request = service.files().get_media(fileId=file_id)
-        restore_file = "restore_temp.sql"
-        with open(restore_file, "wb") as f:
-            f.write(request.execute())
+        # Get metadata to determine the format (.tar.gz or .sql)
+        metadata = service.files().get(fileId=file_id, fields='name,mimeType').execute()
+        filename = metadata.get('name', '')
+        logger.info(f"Target backup filename: {filename}")
 
+        is_tarball = filename.lower().endswith('.tar.gz') or 'gzip' in metadata.get('mimeType', '').lower()
+
+        if is_tarball:
+            # 1. Download tar.gz from Google Drive
+            restore_archive = "restore_temp.tar.gz"
+            logger.info(f"Downloading volume archive {filename}...")
+            request = service.files().get_media(fileId=file_id)
+            with open(restore_archive, "wb") as f:
+                f.write(request.execute())
+
+            # 2. Extract archive
+            temp_extract_dir = "restore_temp_dir"
+            if os.path.exists(temp_extract_dir):
+                shutil.rmtree(temp_extract_dir)
+            os.makedirs(temp_extract_dir, exist_ok=True)
+            
+            logger.info("Extracting consolidated volume archive...")
+            with tarfile.open(restore_archive, "r:gz") as tar:
+                tar.extractall(path=temp_extract_dir)
+
+            # 3. Restore filesystem volumes if they exist
+            extracted_volumes_dir = os.path.join(temp_extract_dir, "volumes")
+            if os.path.exists(extracted_volumes_dir):
+                for volume_name in os.listdir(extracted_volumes_dir):
+                    source_dir = os.path.join(extracted_volumes_dir, volume_name)
+                    target_dir = os.path.join("/backup/volumes", volume_name)
+                    
+                    if os.path.isdir(source_dir):
+                        logger.info(f"Restoring filesystem volume: {volume_name} to {target_dir}...")
+                        if os.path.exists(target_dir):
+                            # Clean out existing directory contents to ensure correct state
+                            for entry in os.listdir(target_dir):
+                                entry_path = os.path.join(target_dir, entry)
+                                try:
+                                    if os.path.isdir(entry_path):
+                                        shutil.rmtree(entry_path)
+                                    else:
+                                        os.remove(entry_path)
+                                except Exception as e:
+                                    logger.warning(f"Failed to delete {entry_path} during restore cleanup: {e}")
+                        else:
+                            os.makedirs(target_dir, exist_ok=True)
+
+                        # Copy extracted files to volume
+                        for entry in os.listdir(source_dir):
+                            src_path = os.path.join(source_dir, entry)
+                            dst_path = os.path.join(target_dir, entry)
+                            if os.path.isdir(src_path):
+                                shutil.copytree(src_path, dst_path)
+                            else:
+                                shutil.copy2(src_path, dst_path)
+            
+            # 4. Restore database if SQL dump exists in archive
+            db_sql_file = os.path.join(temp_extract_dir, "db_backup.sql")
+            if os.path.exists(db_sql_file):
+                logger.info("Database SQL dump found in archive. Starting database restore...")
+                success, msg = _restore_db_from_sql_file(db_url, db_sql_file)
+                if not success:
+                    return False, f"Volume files restored but database restore failed: {msg}"
+            else:
+                logger.warning("No db_backup.sql found in archive. Skipping database restore.")
+
+            # Clean up temp files
+            if os.path.exists(restore_archive):
+                os.remove(restore_archive)
+            if os.path.exists(temp_extract_dir):
+                shutil.rmtree(temp_extract_dir)
+
+            return True, "Volume and database restore successful"
+
+        else:
+            # Legacy/fallback behavior: direct SQL restore
+            restore_file = "restore_temp.sql"
+            logger.info(f"Downloading legacy SQL backup {filename}...")
+            request = service.files().get_media(fileId=file_id)
+            with open(restore_file, "wb") as f:
+                f.write(request.execute())
+
+            success, msg = _restore_db_from_sql_file(db_url, restore_file)
+            
+            if os.path.exists(restore_file):
+                os.remove(restore_file)
+                
+            if success:
+                return True, "Legacy SQL restore successful"
+            else:
+                return False, msg
+
+    except Exception as e:
+        logger.exception("An error occurred during restore")
+        return False, str(e)
+
+def _restore_db_from_sql_file(db_url, sql_file_path):
+    try:
         # Pre-process the restore file for version compatibility
-        if os.path.exists(restore_file):
-            with open(restore_file, 'r') as f:
+        if os.path.exists(sql_file_path):
+            with open(sql_file_path, 'r') as f:
                 content = f.read()
             
             # Remove transaction_timeout which is incompatible with Postgres < 17
@@ -283,7 +406,7 @@ def perform_restore(file_id):
                 logger.info("Removing 'SET transaction_timeout = 0;' for compatibility")
                 content = content.replace("SET transaction_timeout = 0;", "-- SET transaction_timeout = 0; (removed for compatibility)")
             
-            with open(restore_file, 'w') as f:
+            with open(sql_file_path, 'w') as f:
                 f.write(content)
 
         # Clear the database before restore to handle old backups without --clean
@@ -299,20 +422,15 @@ def perform_restore(file_id):
             logger.error(f"Failed to clear schema: {e}. Attempting restore anyway...")
 
         # Run psql to restore
-        # We use ON_ERROR_STOP=1 to make sure we catch failures
-        result = subprocess.run(['psql', '-v', 'ON_ERROR_STOP=1', db_url, '-f', restore_file], capture_output=True, text=True)
+        result = subprocess.run(['psql', '-v', 'ON_ERROR_STOP=1', db_url, '-f', sql_file_path], capture_output=True, text=True)
         
         if result.returncode != 0:
             logger.error(f"psql restore failed: {result.stderr}")
-            # If it failed because of the schema drop, we might need to investigate
             return False, result.stderr
 
-        logger.info("Restore completed successfully.")
-        
-        # Clean up local file
-        os.remove(restore_file)
-        return True, "Restore successful"
-
+        logger.info("Database restore from SQL completed successfully.")
+        return True, "Success"
     except Exception as e:
-        logger.exception("An error occurred during restore")
+        logger.exception("Failed to restore db from SQL file")
         return False, str(e)
+

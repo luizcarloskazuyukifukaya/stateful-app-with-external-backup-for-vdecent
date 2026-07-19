@@ -16,6 +16,8 @@ services:
       retries: 10
     labels:
       - "coolify.managed=true"
+    volumes:
+      - app_uploads:/app/uploads
 
   db:
     image: postgres:16-alpine
@@ -48,6 +50,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - postgres_data:/backup/volumes/postgres_data
+      - app_uploads:/backup/volumes/app_uploads
 
 volumes:
   postgres_data:
+  app_uploads:
+

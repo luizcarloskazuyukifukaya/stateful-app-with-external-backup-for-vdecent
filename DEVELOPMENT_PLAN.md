@@ -67,4 +67,14 @@ This plan outlines the implementation of a sidecar container for automatic datab
 - [x] Verify both branches are fully synced and clean.
 - [x] Delete `docker-network-enhancement` branch locally and remotely.
 
+## Phase 10: Docker Volume Backup & Restore Support
+- [x] Configure `app_uploads` volume for the `app` service and mount it to `/app/uploads`.
+- [x] Map both `postgres_data` and `app_uploads` to `sidecar` service under `/backup/volumes/`.
+- [x] Enhance `sidecar/backup.py` to create `backup_YYYYMMDD_HHMMSS.tar.gz` containing `db_backup.sql` and the contents of non-db volumes.
+- [x] Update `perform_restore` in `sidecar/backup.py` to download, extract the tarball, restore filesystem volumes, and run database restoration.
+- [x] Update lookups in `sidecar/backup.py` to fetch `.tar.gz` backups from Google Drive.
+- [x] Update `README.md` to reflect the new Docker volume backup capabilities.
+- [ ] Verify functionality locally.
+
+
 
