@@ -57,7 +57,21 @@ def get_gdrive_service():
     
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                logger.error(f"Failed to refresh Google API token: {e}")
+                # Remove the invalid token file so we don't try to reuse it next time
+                if os.path.exists(token_path):
+                    try:
+                        os.remove(token_path)
+                        logger.info(f"Deleted invalid token file: {token_path}")
+                    except Exception as rm_err:
+                        logger.error(f"Failed to remove invalid token file: {rm_err}")
+                raise RuntimeError(
+                    "Google Drive credentials expired/revoked and could not be refreshed. "
+                    "The invalid token file has been deleted. Please regenerate token.json using run_local.sh or by running sidecar/generate_token.py."
+                ) from e
         else:
             if not os.path.exists(creds_path):
                 raise FileNotFoundError(f"Credentials file not found at {creds_path}")
