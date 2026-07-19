@@ -79,6 +79,16 @@ These variables must be supplied to the V-Decent Application Manager:
 - **Restore procedure:** Use the Sidecar API `/api/restore` with a valid `file_id` and auth token. It will unpack the archive, restore the filesystem volumes, and run the SQL database restoration.
 - **Known limitations:** Backup interval minimum is 5 minutes. Initial restore on first deployment requires an existing backup in the specified Google Drive folder.
 
+### What IS Backed Up:
+- **Database Tables & Rows**: Exported via `pg_dump` as `db_backup.sql` inside the backup archive.
+- **Application Docker Volumes**: Any filesystem directory declared as a named volume in `docker-compose.yaml` and mounted to the `sidecar` container under `/backup/volumes/` (e.g. `app_uploads` mounted at `/app/uploads`).
+
+### What IS NOT Backed Up:
+- **Application Source Code**: Managed, versioned, and backed up via GitHub repository.
+- **Environment Variables & Secrets**: Managed separately by the PaaS / Host Environment (`.env`, `DATABASE_URL`, `RESTORE_AUTH_TOKEN`, `token.json`, etc.).
+- **Unmounted Container Files**: Files stored directly inside the container's internal filesystem layer without a Docker volume mapping are ephemeral. The sidecar cannot access unmounted paths, and Docker will delete them upon container recreation.
+
+
 
 ## Troubleshooting
 - **Startup:** Check logs via `docker compose logs -f`. Ensure `DATABASE_URL` matches the internal `db` service name.
