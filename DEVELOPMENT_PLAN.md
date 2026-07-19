@@ -75,7 +75,7 @@ This plan outlines the implementation of a sidecar container for automatic datab
 - [x] Update lookups in `sidecar/backup.py` to fetch `.tar.gz` backups from Google Drive.
 - [x] Update `README.md` to reflect the new Docker volume backup capabilities.
 - [x] Verify functionality locally.
-- [ ] Merge `backup_enhancement` branch into `main` and push to remote.
+- [x] Merge `backup_enhancement` branch into `main` and push to remote.
 
 
 
